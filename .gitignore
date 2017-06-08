@@ -1,0 +1,15 @@
+_build
+*.native
+*.aux
+*.fls
+*.fdb_latexmk
+*.blg
+*.run.xml
+*.log
+*.out
+*.bcf
+*.dvi
+*.bbl
+*.pdf
+paper/auto
+*.docdir

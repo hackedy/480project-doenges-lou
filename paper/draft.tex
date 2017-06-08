@@ -1,0 +1,161 @@
+\documentclass[10pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{tgpagella,mathpazo}
+
+\usepackage[
+backend=biber,
+sorting=ynt,
+style=alphabetic
+]{biblatex}
+
+\usepackage{tikz}
+\usetikzlibrary{cd}
+
+\usepackage{dirtree}
+\usepackage{hyperref}
+\usepackage{amssymb,amsmath,amsthm,mathtools}
+
+\DeclarePairedDelimiter{\round}{\lfloor}{\rceil}
+
+\DeclareMathOperator{\Z}{\mathbb{Z}}
+
+\addbibresource{ref.bib}
+
+\title{Homomorphic Encryption with Rings}
+\author{Ryan Doenges \and Thomas Sixuan Lou}
+\date{June 8th, 2017}
+
+\begin{document}
+
+\maketitle
+
+We have implemented a family of leveled homomorphic encryption schemes based on
+NTRU following the textbook's exposition \cite{Hoffstein:2014:IMC:2682593} and
+several research papers \cite{DBLP:conf/stoc/Lopez-AltTV12}
+\cite{DBLP:journals/iacr/DorozHS14}.
+
+\section{Introduction}
+
+Encrypting data hides structure and patterns present in the plaintext to produce
+a high-entropy ciphertext. In general, this security property means that
+untrusted parties can only help store and transmit information. However, there
+are cryptosystems that allow untrusted parties to perform more operations. In
+particular, homomorphic encryption makes it possible for untrusted parties to
+perform arbitrary computations on encrypted data while maintaining the security
+guarantees provided by ordinary encryption schemes.
+
+We have developed a framework for implementing NTRU and NTRU-like public key
+cryptography and have used it to realize vanilla NTRU as well as a ``leveled
+homorphic'' cryptosystem similar to NTRU. Informally, a leveled homomorphic
+scheme makes it possible to evaluate circuits of bounded depth on encrypted data
+without ever decrypting the data. NTRU-like schemes encrypt polynomials in rings
+like \(R = \mathbb{Z}[x]/\langle \phi \rangle\), where \(\phi\) is some fixed
+monic polynomial. For such a scheme to be homomorphic, it suffices for the
+arithmetic operations of \(R\) or some related ring (e.g., \(R/nR\)) to commute
+with the scheme's encryption and decryption maps. This is because arbitrary
+binary circuits may be evaluated using the ring operations. In other words,
+NTRU-like cryptosystems are homomorphic when their encryption maps \(e_k :
+\mathcal{M} \to \mathcal{C}\) are ring homomorphisms.
+
+\section{A leveled homomorphic scheme based on NTRU}
+
+Most fully homomorphic encryption schemes are not presented as one unified
+scheme. Instead, following the pioneering work of Gentry
+\cite{DBLP:conf/stoc/Gentry09}, cryptographers begin with a leveled homomorphic
+scheme which is then turned into a fully homomorphic scheme using a
+bootstrapping process. This bootstrapping process requires the depth of the
+circuit used to decrypt a ciphertext to grow polynomially with their level. We
+have implemented a leveled homomorphic scheme for which the size of the
+ciphertexts grows exponentially with the level, so it's not bootstrappable.
+However, with small (read: insecure!) parameters we can still evaluate deep
+circuits.
+
+Let $\alpha$ and $\mu$ be fixed positive integers. The scheme, called
+\emph{LHE}, is parameterized by integers $(N, p, q, d)$ in the same way as NTRU,
+but with \(q > 2\alpha(2pN)^{2\mu}\). It will be able to evaluate \(\mu\)
+multiplications and \(\alpha\) additions at each level. Instead of generating
+private keys as arbitrary ternary polynomials in the way that ordinary NTRU
+does, we generate \(f\) and \(g\) such that \(f \equiv 1 \pmod{p}\) and \(g
+\equiv 0 \pmod{p}\). We additionally suppose that \(f\), \(g\), \(m\), and \(r\)
+are \(p\)-bounded.
+
+Encryption of plaintexts $m$ is given by \(e \equiv h \star r + m \pmod{q}\)
+where \(r\) is drawn from a distribution \(\mathcal{T}(d, d+1)\) of ternary
+polynomials defined in the textbook.
+
+Decryption of a ciphertext $c$ is given by computing the center-lift $a$
+of $f \star c$ modulo $q$ and then reducing $a$ modulo $p$.
+
+The textbook gives a proof that when \(q > 2\alpha(2pN)^{2\mu}\), this
+cryptosystem can successfully decrypt ciphertexts after $\mu$ multiplications
+and $\alpha$ additions with the private key $f^\mu = f \star f \star \dots \star
+f$. In practice we have found that choosing \(q\) larger than the textbook's
+lower bound results in about \(1.5\mu\) to \(3\mu\) successful multiplications
+before decryption fails, depending on the size of the noise parameter \(d\). Try
+our demo \texttt{ntrudemo.native} to see this in action.
+
+\section{Implementation}
+The cryptosystems are in the \texttt{src/} subdirectory and their tests are in
+the \texttt{tests/} subdirectory. The best place to start in order to understand
+our code is the \texttt{NTRUEncrypt.ml} file, which uses operations from our
+\texttt{Polynomial} module to implement the NTRU cryptosystem as described in
+the textbook. For instructions on building the code and the documentation HTML
+files, see \texttt{README.md}.
+
+\subsection{Modularity}
+In OCaml, \texttt{File.ml} contains an implementation of a module named
+\texttt{File}. If \texttt{File.mli} exists, it defines the interface through
+which other modules may use \texttt{File}. We took advantage of this modularity
+to provide implementations of common operations without letting other code know
+too much about the content of the module.
+
+For example, we have a module \texttt{Int} which was for most of the quarter a
+thin wrapper around the built-in \texttt{int} datatype. Its interface in
+\texttt{Int.mli} keeps the type \texttt{Int.t = int} \emph{opaque}, so other
+modules had to operate on \texttt{Int.t} values using functions from the
+\texttt{Int} module. This meant that when we switched to using the big integer
+library Zarith in the implementation of \texttt{Int}, other code worked just the
+same as it did before.
+
+This same principle underlies the implementation of and interface for the
+\texttt{Polynomial} module, which represents polynomials by an array of their
+coefficients but does not allow other modules to access those arrays directly.
+
+\subsection{Challenges}
+
+We wanted to finish implementing two more things: a linearly scaling leveled
+homomorphic cryptosystem (termed DHS) based on NTRU
+\cite{DBLP:journals/iacr/DorozHS14} and the Discrete Ziggurat method for
+sampling from the discrete Gaussian distribution to produce better-behaved noise
+polynomials \cite{ziggurat}.
+
+We have a nearly working implementation of the DHS cryptosystem in the
+\texttt{Doroz} module, but it uses modulus switching and relinearization
+operations to correct noise after homomorphic multiplications and we were unable
+to get those working. The process of trying to debug them broke the rest of the
+code. Part of the difficulty was that the parameter estimation required to make
+decryption work is only done concretely in the DHS paper for realistic security
+assumptions. Our code is too slow to perform key generation for the DHS scheme
+in under an hour when using parameters from their paper (\(N \approx 2^{12}, q_0
+\approx 2^{155}\)). I used \texttt{perf}, a profiling tool for Linux, to
+diagnose the cause of the slowness. One of its most useful analyses shows how
+much time your program is spending in a given function and ranks functions by
+that amount of time. Internal OCaml procedures associated with the allocation
+and deallocation of arrays showed up high in the list as well as the
+\texttt{conv} subroutine of \texttt{Polynomial.mul}. It seems that because the
+\texttt{Polynomial} module frequently allocates new arrays for intermediate
+values instead of overwriting existing arrays, there's a lot of time spent
+unnecessarily managing memory.
+
+The Discrete Ziggurat posed a different problem, which was that the paper's
+algorithm for partitioning the area under a Gaussian into rectangles leaves many
+details unaccounted for. Implementing the algorithm based on the description in
+the paper can easily result in an optimization algorithm that spins out instead
+of converging. We attempted to make our implementation work by trying to read
+the published code from the authors of the Discrete Ziggurat paper, but it was
+opaque and we decided uniform sampling over \(B\)-bounded polynomials would be
+fine instead.
+
+\printbibliography
+
+\end{document}
